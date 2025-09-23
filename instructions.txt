@@ -1,0 +1,106 @@
+Start the daemons (WSL, Terminal #1)
+
+Open the Ubuntu app (WSL) and paste:
+
+# 1) go to your WSL project (copy from Windows if missing)
+cd ~/dev/op-jetson-adapters 2>/dev/null || {
+  mkdir -p ~/dev
+  cp -r "/mnt/c/Users/Abduh/Downloads/astratest/op-jetson-adapters" ~/dev/
+  cd ~/dev/op-jetson-adapters
+}
+
+# 2) venv + deps
+python3 -m venv .venv 2>/dev/null || true
+source .venv/bin/activate
+python -m pip install -U pip
+pip install -r requirements.txt numpy pillow
+
+# 3) normalize endings (harmless if already done)
+command -v dos2unix >/dev/null 2>&1 && \
+  dos2unix adapters/*.py adapters/common/*.py tools/run_all.sh || true
+
+# 4) run
+chmod +x tools/run_all.sh
+./tools/run_all.sh
+
+
+(Leave this window running.)
+
+Watch the data (WSL, Terminal #2)
+
+Open a second Ubuntu window and paste:
+
+cd ~/dev/op-jetson-adapters
+source .venv/bin/activate
+python - << 'PY'
+import zmq, json
+ctx=zmq.Context.instance()
+s=ctx.socket(zmq.SUB); s.connect("tcp://127.0.0.1:5557")
+for t in (b"gps.raw", b"camera.front", b"camera.front.bytes"):
+    s.setsockopt(zmq.SUBSCRIBE, t)
+print("listening… (Ctrl+C to stop)")
+while True:
+    parts = s.recv_multipart()
+    topic = parts[0].decode()
+    if topic.endswith(".bytes"):
+        print(topic, "bytes=", len(parts[1]))
+    else:
+        print(topic, json.loads(parts[1]))
+PY
+
+
+You should see lines like:
+
+gps.raw {...}
+
+camera.front {...}
+
+camera.front.bytes bytes= 691200
+
+Optional: save a camera frame to a PNG (quick visual)
+
+cd ~/dev/op-jetson-adapters
+source .venv/bin/activate
+python - << 'PY'
+import zmq, json, numpy as np
+from PIL import Image
+ctx=zmq.Context.instance(); s=ctx.socket(zmq.SUB)
+s.connect("tcp://127.0.0.1:5557")
+for t in (b"camera.front", b"camera.front.bytes"):
+    s.setsockopt(zmq.SUBSCRIBE, t)
+w=h=None
+while True:
+    topic, payload = s.recv_multipart()
+    if topic==b"camera.front":
+        md=json.loads(payload); w,h=md["w"],md["h"]
+    elif topic==b"camera.front.bytes" and w and h:
+        img=np.frombuffer(payload,dtype=np.uint8).reshape(h,w,3)
+        Image.fromarray(img).save("/tmp/mock_frame.png")
+        print("Saved /tmp/mock_frame.png"); break
+PY
+
+
+Open it from Windows: \\wsl.localhost\Ubuntu\tmp\mock_frame.png
+
+How to stop
+
+In either window: Ctrl+C.
+
+If anything seems “stuck,” clean up with:
+
+pkill -f adapters.common.hub || true
+pkill -f adapters.sensor_manager || true
+
+
+
+
+Option A — Open the file straight from WSL
+
+In your second Ubuntu window (where your venv is active), run:
+
+# 1) Check it exists
+ls -l /tmp/mock_frame.png
+
+# 2) Convert to a Windows path and open in Explorer
+wslpath -w /tmp/mock_frame.png
+explorer.exe "$(wslpath -w /tmp/mock_frame.png)"

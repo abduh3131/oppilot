@@ -1,0 +1,5 @@
+pyzmq==26.0.3
+pyserial==3.5
+pyyaml==6.0.2
+# enable later when moving to cereal
+# pycapnp==2.0.0
