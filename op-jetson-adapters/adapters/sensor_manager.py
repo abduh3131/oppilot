@@ -1,60 +1,115 @@
-cd ~/dev/op-jetson-adapters
-cat > adapters/sensor_manager.py <<'PY'
-import subprocess, yaml, time, os, sys
+"""Entry point that launches the configured sensor processes."""
 
-CFG = "./config/sensors.yaml"
+from __future__ import annotations
 
-PROCS = []
+import os
+import subprocess
+import sys
+import time
+from pathlib import Path
+from typing import Dict, Iterable, List
 
-def launch_camera(cam):
-    if cam.get("type") == "mock":
+import yaml
+
+
+CFG_ENV = "SENSORS_CONFIG"
+DEFAULT_CFG = Path("./config/sensors.yaml")
+
+
+def _load_config() -> Dict[str, List[dict]]:
+    cfg_path = Path(os.environ.get(CFG_ENV, DEFAULT_CFG))
+    if not cfg_path.exists():
+        raise SystemExit(f"Sensors configuration file not found: {cfg_path}")
+
+    with cfg_path.open("r", encoding="utf-8") as handle:
+        data = yaml.safe_load(handle) or {}
+    if not isinstance(data, dict):
+        raise SystemExit("Sensors configuration must be a mapping of categories")
+    return {key: list(value or []) for key, value in data.items()}
+
+
+def _launch_camera(cam_cfg: dict) -> subprocess.Popen[bytes] | None:
+    cam_type = cam_cfg.get("type")
+    if cam_type == "mock":
         cmd = [
-            "python3","-m","adapters.mock_camera_publisher",
-            "--width",  str(cam.get("width", 1280)),
-            "--height", str(cam.get("height", 720)),
-            "--fps",    str(cam.get("fps", 20)),
-            "--pattern", cam.get("pattern", "gradient"),
+            "python3",
+            "-m",
+            "adapters.mock_camera_publisher",
+            "--width",
+            str(cam_cfg.get("width", 1280)),
+            "--height",
+            str(cam_cfg.get("height", 720)),
+            "--fps",
+            str(cam_cfg.get("fps", 20)),
+            "--pattern",
+            cam_cfg.get("pattern", "gradient"),
         ]
+        topic = cam_cfg.get("topic")
+        if topic:
+            cmd += ["--topic", topic]
         return subprocess.Popen(cmd)
-    else:
-        print(f"TODO: implement camera type {cam.get('type')}")
-        return None
 
-def launch_gps(gps):
-    cmd = ["python3","-m","adapters.gpsd_bridge"]
-    if gps.get("type") == "mock":
-        cmd += ["--source_file", gps.get("source_file","./config/mock_nmea.txt")]
-    # serial mode later (e.g., --serial /dev/ttyUSB0)
+    print(f"Unsupported camera type: {cam_type}")
+    return None
+
+
+def _launch_gps(gps_cfg: dict) -> subprocess.Popen[bytes] | None:
+    cmd = ["python3", "-m", "adapters.gpsd_bridge"]
+    gps_type = gps_cfg.get("type")
+    if gps_type == "mock":
+        cmd += ["--source_file", gps_cfg.get("source_file", "./config/mock_nmea.txt")]
+    serial = gps_cfg.get("serial")
+    if serial:
+        cmd += ["--serial", serial]
+    topic = gps_cfg.get("topic")
+    if topic:
+        cmd += ["--topic", topic]
     return subprocess.Popen(cmd)
 
-def main():
-    with open(CFG, "r") as f:
-        cfg = yaml.safe_load(f)
 
-    for cam in cfg.get("cameras", []):
-        p = launch_camera(cam)
-        if p: PROCS.append(p)
+def _launch_all(config: Dict[str, Iterable[dict]]) -> List[subprocess.Popen[bytes]]:
+    processes: List[subprocess.Popen[bytes]] = []
+    for cam in config.get("cameras", []):
+        proc = _launch_camera(cam)
+        if proc:
+            processes.append(proc)
+    for gps in config.get("gps", []):
+        proc = _launch_gps(gps)
+        if proc:
+            processes.append(proc)
+    for lidar in config.get("lidar", []):
+        print(f"Lidar support not implemented yet: {lidar}")
+    return processes
 
-    for gps in cfg.get("gps", []):
-        p = launch_gps(gps)
-        if p: PROCS.append(p)
 
+def _wait_forever(processes: List[subprocess.Popen[bytes]]) -> None:
     try:
         while True:
-            alive = [p.poll() is None for p in PROCS]
+            alive = [proc.poll() is None for proc in processes]
             if not all(alive):
-                print("A process exited; restarting...")
-                for p in PROCS:
-                    if p.poll() is None:
-                        p.terminate()
+                print("A process exited; shutting down remaining sensors...")
+                for proc in processes:
+                    if proc.poll() is None:
+                        proc.terminate()
                 time.sleep(1)
-                os.execv(sys.executable, [sys.executable, "-m", "adapters.sensor_manager"])
+                sys.exit(1)
             time.sleep(1)
     except KeyboardInterrupt:
-        for p in PROCS:
-            if p.poll() is None:
-                p.terminate()
+        print("Stopping sensors...")
+        for proc in processes:
+            if proc.poll() is None:
+                proc.terminate()
 
-if __name__ == "__main__":
+
+def main() -> None:
+    config = _load_config()
+    procs = _launch_all(config)
+    if not procs:
+        print("No sensors enabled. Nothing to do.")
+        return
+    _wait_forever(procs)
+
+
+if __name__ == "__main__":  # pragma: no cover - entry point for the launcher
     main()
-PY
+
