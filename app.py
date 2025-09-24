@@ -40,14 +40,19 @@ from tkinter import messagebox, ttk
 from typing import Dict, List, Optional
 
 import platform
+import sys
 
 try:
     import yaml
-except ModuleNotFoundError as exc:  # pragma: no cover - dependency available via requirements.txt
-    raise SystemExit(
-        "PyYAML is required to run the launcher. Install the project "
-        "dependencies first."
-    ) from exc
+except ModuleNotFoundError:  # pragma: no cover - dependency installed dynamically
+    bootstrap_cmd = [sys.executable, "-m", "pip", "install", "pyyaml"]
+    completed = subprocess.run(bootstrap_cmd, capture_output=True, text=True)
+    if completed.returncode != 0:
+        raise SystemExit(
+            "PyYAML is required and automatic installation failed. "
+            "Install it manually and rerun the launcher."
+        )
+    import yaml
 
 
 class LauncherApp:
