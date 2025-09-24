@@ -1,0 +1,6 @@
+# Local environments created by the launcher helper
+.launcher-venv/
+
+# Python bytecode
+__pycache__/
+*.py[cod]
