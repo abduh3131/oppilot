@@ -1,106 +1,124 @@
-Start the daemons (WSL, Terminal #1)
+# OpenPilot Mock Sensor Stack – Quick Start
 
-Open the Ubuntu app (WSL) and paste:
+These instructions assume you want to work from Windows with WSL, with this
+repository kept inside an `OPP` folder and the OpenPilot checkout living
+directly under your Windows user directory:
 
-# 1) go to your WSL project (copy from Windows if missing)
-cd ~/dev/op-jetson-adapters 2>/dev/null || {
-  mkdir -p ~/dev
-  cp -r "/mnt/c/Users/Abduh/Downloads/astratest/op-jetson-adapters" ~/dev/
-  cd ~/dev/op-jetson-adapters
-}
+```
+C:\Users\Abduh\
+├── OPP\
+│   └── oppilot\        (this repository)
+└── openpilot\          (commaai/openpilot checkout)
+```
 
-# 2) venv + deps
-python3 -m venv .venv 2>/dev/null || true
-source .venv/bin/activate
-python -m pip install -U pip
-pip install -r requirements.txt numpy pillow
+> 📝 Tip: clone `commaai/openpilot` into `C:\Users\Abduh\openpilot\` and this
+> repository into `C:\Users\Abduh\OPP\oppilot\` before you begin. The
+> commands below use those paths.
 
-# 3) normalize endings (harmless if already done)
-command -v dos2unix >/dev/null 2>&1 && \
-  dos2unix adapters/*.py adapters/common/*.py tools/run_all.sh || true
+---
 
-# 4) run
-chmod +x tools/run_all.sh
-./tools/run_all.sh
+## 1. Prepare WSL
 
+1. Open **Windows Terminal** → **Ubuntu** (WSL).
+2. Verify the project folders are mounted:
+   ```bash
+   ls /mnt/c/Users/Abduh/OPP
+   ls /mnt/c/Users/Abduh/openpilot
+   ```
+   You should see `oppilot` under the first path and the OpenPilot files under
+   the second.
 
-(Leave this window running.)
+---
 
-Watch the data (WSL, Terminal #2)
+## 2. Set up the mock sensor environment
 
-Open a second Ubuntu window and paste:
+All commands in this section are executed **inside WSL**.
 
-cd ~/dev/op-jetson-adapters
-source .venv/bin/activate
-python - << 'PY'
-import zmq, json
-ctx=zmq.Context.instance()
-s=ctx.socket(zmq.SUB); s.connect("tcp://127.0.0.1:5557")
-for t in (b"gps.raw", b"camera.front", b"camera.front.bytes"):
-    s.setsockopt(zmq.SUBSCRIBE, t)
-print("listening… (Ctrl+C to stop)")
-while True:
-    parts = s.recv_multipart()
-    topic = parts[0].decode()
-    if topic.endswith(".bytes"):
-        print(topic, "bytes=", len(parts[1]))
-    else:
-        print(topic, json.loads(parts[1]))
-PY
+1. Move into the adapter project and create/activate the virtual environment:
+   ```bash
+   cd /mnt/c/Users/Abduh/OPP/oppilot/op-jetson-adapters
+   python3 -m venv .venv
+   source .venv/bin/activate
+   pip install -U pip
+   pip install -r requirements.txt numpy pillow
+   ```
 
+2. Start the mock sensor stack (cameras + GPS):
+   ```bash
+   ./tools/run_all.sh
+   ```
+   Leave this terminal open; it supervises the background publishers. You
+   should see log lines if any sensor subprocess exits unexpectedly.
 
-You should see lines like:
+3. (Optional) In a **second** WSL terminal, you can inspect the ZeroMQ bus:
+   ```bash
+   cd /mnt/c/Users/Abduh/OPP/oppilot/op-jetson-adapters
+   source .venv/bin/activate
+   python tools/sniffer.py
+   ```
+   You will see `gps.raw`, `camera.front`, and `camera.front.bytes` messages as
+   they stream.
 
-gps.raw {...}
+---
 
-camera.front {...}
+## 3. Prepare the OpenPilot replay tools
 
-camera.front.bytes bytes= 691200
+These commands are also run in **WSL** but from the `openpilot` checkout.
 
-Optional: save a camera frame to a PNG (quick visual)
+1. Install OpenPilot dependencies (first run only):
+   ```bash
+   cd /mnt/c/Users/Abduh/openpilot
+   python3 -m pip install -U pip
+   pip install -r requirements_openpilot.txt  # generates the replay venv deps
+   ```
+   > ℹ️ The exact requirements file name can differ across OpenPilot releases
+   > (e.g., `requirements.txt` plus `requirements_optional.txt`). Follow the
+   > upstream README if the file is renamed.
 
-cd ~/dev/op-jetson-adapters
-source .venv/bin/activate
-python - << 'PY'
-import zmq, json, numpy as np
-from PIL import Image
-ctx=zmq.Context.instance(); s=ctx.socket(zmq.SUB)
-s.connect("tcp://127.0.0.1:5557")
-for t in (b"camera.front", b"camera.front.bytes"):
-    s.setsockopt(zmq.SUBSCRIBE, t)
-w=h=None
-while True:
-    topic, payload = s.recv_multipart()
-    if topic==b"camera.front":
-        md=json.loads(payload); w,h=md["w"],md["h"]
-    elif topic==b"camera.front.bytes" and w and h:
-        img=np.frombuffer(payload,dtype=np.uint8).reshape(h,w,3)
-        Image.fromarray(img).save("/tmp/mock_frame.png")
-        print("Saved /tmp/mock_frame.png"); break
-PY
+2. Build OpenPilot (first run only):
+   ```bash
+   scons -j$(nproc)
+   ```
 
+3. Download or copy a comma recording (route) into `~/openpilot_data/`.
+   For example, place the route `a2b3c4d5e6f7abcd|2023-05-01--12-34-56` inside
+   that folder.
 
-Open it from Windows: \\wsl.localhost\Ubuntu\tmp\mock_frame.png
+---
 
-How to stop
+## 4. Run an OpenPilot replay against the mock sensors
 
-In either window: Ctrl+C.
+1. In a new WSL terminal:
+   ```bash
+   cd /mnt/c/Users/Abduh/openpilot
+   source tools/replay/plotjuggler_venv/bin/activate  # or the venv created above
+   ./tools/replay/replay.py --demo --qcamera --dcam --no-controller --route <ROUTE_NAME>
+   ```
+   Replace `<ROUTE_NAME>` with the route you downloaded. The `--demo`
+   flag tells replay to consume the log without sending commands to a car.
 
-If anything seems “stuck,” clean up with:
+2. Ensure the mock sensor stack from step 2 is still running. Replay uses
+   OpenPilot’s logged data for vehicle state while the adapters provide the
+   simulated live camera and GPS streams.
 
-pkill -f adapters.common.hub || true
-pkill -f adapters.sensor_manager || true
+3. To stop everything:
+   - Press `Ctrl+C` in the replay terminal.
+   - Press `Ctrl+C` in the `tools/run_all.sh` terminal. The supervisor will
+     send SIGINT to each mock publisher for a clean shutdown.
 
+---
 
+## 5. Troubleshooting
 
+- **No frames/GPS data?** Run `python tools/sniffer.py` to confirm the mock
+  publishers are active. If nothing appears, restart `./tools/run_all.sh`.
+- **Port already in use?** Another ZeroMQ publisher might still be bound to
+  `tcp://127.0.0.1:5557`. Stop stale processes with
+  `pkill -f adapters.mock_camera_publisher` and `pkill -f adapters.gpsd_bridge`.
+- **Python package errors?** Re-run the virtual environment setup commands.
+- **Different Windows username or path?** Adjust the `/mnt/c/...` paths to match
+  your system.
 
-Option A — Open the file straight from WSL
-
-In your second Ubuntu window (where your venv is active), run:
-
-# 1) Check it exists
-ls -l /tmp/mock_frame.png
-
-# 2) Convert to a Windows path and open in Explorer
-wslpath -w /tmp/mock_frame.png
-explorer.exe "$(wslpath -w /tmp/mock_frame.png)"
+These steps give you a self-contained simulation loop: mock sensors feed live
+ZeroMQ topics while OpenPilot replays previously recorded drives for testing and
+UI exploration.

@@ -1,60 +1,89 @@
-cd ~/dev/op-jetson-adapters
-cat > adapters/sensor_manager.py <<'PY'
-import subprocess, yaml, time, os, sys
+"""Launch and supervise the mock sensor publishers."""
+from __future__ import annotations
 
-CFG = "./config/sensors.yaml"
+import signal
+import subprocess
+import sys
+import time
+from pathlib import Path
+from typing import List
 
-PROCS = []
+import yaml
 
-def launch_camera(cam):
+CFG = Path(__file__).resolve().parents[1] / "config" / "sensors.yaml"
+PROCS: List[subprocess.Popen[bytes]] = []
+
+
+def launch_camera(cam: dict) -> subprocess.Popen[bytes] | None:
     if cam.get("type") == "mock":
         cmd = [
-            "python3","-m","adapters.mock_camera_publisher",
-            "--width",  str(cam.get("width", 1280)),
-            "--height", str(cam.get("height", 720)),
-            "--fps",    str(cam.get("fps", 20)),
-            "--pattern", cam.get("pattern", "gradient"),
+            sys.executable,
+            "-m",
+            "adapters.mock_camera_publisher",
+            "--width",
+            str(cam.get("width", 1280)),
+            "--height",
+            str(cam.get("height", 720)),
+            "--fps",
+            str(cam.get("fps", 20)),
+            "--pattern",
+            cam.get("pattern", "gradient"),
+            "--topic",
+            cam.get("topic", "camera.front"),
         ]
         return subprocess.Popen(cmd)
-    else:
-        print(f"TODO: implement camera type {cam.get('type')}")
-        return None
 
-def launch_gps(gps):
-    cmd = ["python3","-m","adapters.gpsd_bridge"]
+    print(f"TODO: implement camera type {cam.get('type')}")
+    return None
+
+
+def launch_gps(gps: dict) -> subprocess.Popen[bytes] | None:
+    cmd = [sys.executable, "-m", "adapters.gpsd_bridge"]
     if gps.get("type") == "mock":
-        cmd += ["--source_file", gps.get("source_file","./config/mock_nmea.txt")]
-    # serial mode later (e.g., --serial /dev/ttyUSB0)
+        cmd += ["--source_file", gps.get("source_file", "./config/mock_nmea.txt")]
+    if gps.get("topic"):
+        cmd += ["--topic", gps["topic"]]
+    if gps.get("rate_hz"):
+        cmd += ["--rate_hz", str(gps["rate_hz"])]
     return subprocess.Popen(cmd)
 
-def main():
-    with open(CFG, "r") as f:
-        cfg = yaml.safe_load(f)
+
+def read_config() -> dict:
+    with CFG.open("r", encoding="utf-8") as f:
+        return yaml.safe_load(f) or {}
+
+
+def main() -> None:
+    cfg = read_config()
 
     for cam in cfg.get("cameras", []):
-        p = launch_camera(cam)
-        if p: PROCS.append(p)
+        proc = launch_camera(cam)
+        if proc:
+            PROCS.append(proc)
 
     for gps in cfg.get("gps", []):
-        p = launch_gps(gps)
-        if p: PROCS.append(p)
+        proc = launch_gps(gps)
+        if proc:
+            PROCS.append(proc)
 
     try:
         while True:
-            alive = [p.poll() is None for p in PROCS]
+            alive = [proc.poll() is None for proc in PROCS]
             if not all(alive):
-                print("A process exited; restarting...")
-                for p in PROCS:
-                    if p.poll() is None:
-                        p.terminate()
-                time.sleep(1)
-                os.execv(sys.executable, [sys.executable, "-m", "adapters.sensor_manager"])
+                print("A sensor process exited; shutting down...", flush=True)
+                break
             time.sleep(1)
     except KeyboardInterrupt:
-        for p in PROCS:
-            if p.poll() is None:
-                p.terminate()
+        pass
+    finally:
+        for proc in PROCS:
+            if proc.poll() is None:
+                proc.send_signal(signal.SIGINT)
+                try:
+                    proc.wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    proc.terminate()
+
 
 if __name__ == "__main__":
     main()
-PY

@@ -1,17 +1,18 @@
 cameras:
-- name: front_cam
-type: mock
-width: 1280
-height: 720
-fps: 20
-pattern: gradient # gradient | noise | bars
-
+  - name: front_cam
+    type: mock
+    topic: camera.front
+    width: 1280
+    height: 720
+    fps: 20
+    pattern: gradient  # gradient | noise | bars
 
 gps:
-- name: usb_gnss
-type: mock
-source_file: ./config/mock_nmea.txt
-baud: 9600
-
+  - name: usb_gnss
+    type: mock
+    topic: gps.raw
+    source_file: ./config/mock_nmea.txt
+    baud: 9600
+    rate_hz: 5.0
 
 lidar: []
