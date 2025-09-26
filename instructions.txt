@@ -1,27 +1,32 @@
 # OpenPilot Mock Sensor Stack – Quick Start
 
-These instructions assume you want to work from Windows with WSL and keep the
-repositories side‑by‑side under:
+These instructions assume you want to work from Windows with WSL, with this
+repository kept inside an `OPP` folder and the OpenPilot checkout living
+directly under your Windows user directory:
 
 ```
-C:\Users\Abduh\OneDrive\Desktop\OPP\
-│   ├── openpilot\
-│   └── oppilot\  (this repository)
+C:\Users\Abduh\
+├── OPP\
+│   └── oppilot\        (this repository)
+└── openpilot\          (commaai/openpilot checkout)
 ```
 
-> 📝 Tip: clone `commaai/openpilot` into `openpilot/` and this repo into
-> `oppilot/` before you begin. The commands below use those paths.
+> 📝 Tip: clone `commaai/openpilot` into `C:\Users\Abduh\openpilot\` and this
+> repository into `C:\Users\Abduh\OPP\oppilot\` before you begin. The
+> commands below use those paths.
 
 ---
 
 ## 1. Prepare WSL
 
 1. Open **Windows Terminal** → **Ubuntu** (WSL).
-2. Verify the project folder is mounted:
+2. Verify the project folders are mounted:
    ```bash
-   ls /mnt/c/Users/Abduh/OneDrive/Desktop/OPP
+   ls /mnt/c/Users/Abduh/OPP
+   ls /mnt/c/Users/Abduh/openpilot
    ```
-   You should see both `openpilot` and `oppilot`.
+   You should see `oppilot` under the first path and the OpenPilot files under
+   the second.
 
 ---
 
@@ -31,7 +36,7 @@ All commands in this section are executed **inside WSL**.
 
 1. Move into the adapter project and create/activate the virtual environment:
    ```bash
-   cd /mnt/c/Users/Abduh/OneDrive/Desktop/OPP/oppilot/op-jetson-adapters
+   cd /mnt/c/Users/Abduh/OPP/oppilot/op-jetson-adapters
    python3 -m venv .venv
    source .venv/bin/activate
    pip install -U pip
@@ -47,7 +52,7 @@ All commands in this section are executed **inside WSL**.
 
 3. (Optional) In a **second** WSL terminal, you can inspect the ZeroMQ bus:
    ```bash
-   cd /mnt/c/Users/Abduh/OneDrive/Desktop/OPP/oppilot/op-jetson-adapters
+   cd /mnt/c/Users/Abduh/OPP/oppilot/op-jetson-adapters
    source .venv/bin/activate
    python tools/sniffer.py
    ```
@@ -62,7 +67,7 @@ These commands are also run in **WSL** but from the `openpilot` checkout.
 
 1. Install OpenPilot dependencies (first run only):
    ```bash
-   cd /mnt/c/Users/Abduh/OneDrive/Desktop/OPP/openpilot
+   cd /mnt/c/Users/Abduh/openpilot
    python3 -m pip install -U pip
    pip install -r requirements_openpilot.txt  # generates the replay venv deps
    ```
@@ -85,7 +90,7 @@ These commands are also run in **WSL** but from the `openpilot` checkout.
 
 1. In a new WSL terminal:
    ```bash
-   cd /mnt/c/Users/Abduh/OneDrive/Desktop/OPP/openpilot
+   cd /mnt/c/Users/Abduh/openpilot
    source tools/replay/plotjuggler_venv/bin/activate  # or the venv created above
    ./tools/replay/replay.py --demo --qcamera --dcam --no-controller --route <ROUTE_NAME>
    ```
