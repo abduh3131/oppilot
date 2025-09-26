@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
-source .venv/bin/activate || true
-python3 -m adapters.sensor_manager
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+
+cd "$PROJECT_ROOT"
+source .venv/bin/activate
+exec python3 -m adapters.sensor_manager
